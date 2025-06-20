@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minimal SIWE + SMS OTP</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 2rem; }
+    button { margin: 0.5rem 0; padding: 0.4rem 0.8rem; }
+    input { padding: 0.4rem; }
+    #status { margin-top: 1rem; white-space: pre-line; background:#f4f4f4; padding: 1rem; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Sign‑In With Ethereum + SMS OTP</h1>
+
+  <section>
+    <button id="connect">1️⃣ Connect MetaMask</button><br />
+    <button id="signin" disabled>2️⃣ Sign‑In with Ethereum</button>
+  </section>
+
+  <section style="margin-top:1rem;">
+    <input id="phone" placeholder="+15555550123" />
+    <button id="send" disabled>3️⃣ Send SMS OTP</button><br />
+    <input id="code" placeholder="Enter OTP" />
+    <button id="verify" disabled>4️⃣ Verify OTP</button>
+  </section>
+
+  <pre id="status">Status:
+- Wallet: (not connected)
+- SIWE: (not signed in)
+- Phone: (not verified)</pre>
+
+<script type="module">
+import { ethers } from 'https://esm.sh/ethers@6?bundle';
+import { SiweMessage } from 'https://esm.sh/siwe@3?bundle';
+import axios from 'https://esm.sh/axios@1?bundle';
+import { wrapper } from 'https://esm.sh/axios-cookiejar-support@6?bundle';
+import { CookieJar } from 'https://esm.sh/tough-cookie@5?bundle';
+
+(async () => {
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  let signer, address, chainId;
+
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+  const append = (msg) => (status.textContent += "\n" + msg);
+  const api = wrapper(axios.create({ baseURL: 'http://localhost:3000', withCredentials: true, jar: new CookieJar() }));
+
+  $('connect').onclick = async () => {
+    try {
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+      signer = await provider.getSigner();
+      address = await signer.getAddress();
+      chainId = (await provider.getNetwork()).chainId;
+      append('✅ Wallet connected: ' + address);
+      $('signin').disabled = false;
+    } catch (err) {
+      alert(err.message || err);
+    }
+  };
+
+  $('signin').onclick = async () => {
+    try {
+      const { data: nonce } = await api.get('/nonce');
+      const msgObj = new SiweMessage({
+        domain: 'localhost',
+        address,
+        statement: 'Sign in with Ethereum (Twilio Verify OTP)',
+        uri: 'http://localhost:3000',
+        version: '1',
+        chainId,
+        nonce,
+        //issuedAt: new Date().toISOString()
+      });
+      const message = msgObj.prepareMessage();
+      const signature = await signer.signMessage(message);
+      const res = await api.post('/verify', { message, signature });
+      if (!res.data.ok) throw new Error(JSON.stringify(res));
+      append('✅ SIWE verified for ' + res.address);
+      $('send').disabled = false;
+    } catch (err) {
+      alert(err.message || err);
+    }
+  };
+
+  $('send').onclick = async () => {
+    try {
+      const phone = $('phone').value.trim();
+      const res = await api.post('/sms-request', { phone });
+
+      if (!res.data.ok) throw new Error(res.data.error || 'SMS request failed');
+      append('📲 OTP sent to ' + phone);
+      $('verify').disabled = false;
+    } catch (err) {
+      alert(err.message || err);
+    }
+  };
+
+  $('verify').onclick = async () => {
+    try {
+      const code = $('code').value.trim();
+      const res = await api.post('/sms-verify', { code });
+      if (!res.data.ok) throw new Error(res.data.error || 'Verification failed');
+      append('✅ Phone verified: ' + res.data.phone);
+    } catch (err) {
+      alert(err.message || err);
+    }
+  };
+})();
+</script>
+</body>
+</html>
