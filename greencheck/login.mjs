@@ -48,6 +48,7 @@ const wallet = Wallet.fromPhrase(MNEMONIC);
     /* 5️⃣  Fetch protected data */
     const { data: me } = await api.get('/me');
     console.log('👤  /me →', me);
+
   } catch (err) {
     console.error('Client error:', err.response?.data || err.message);
   }

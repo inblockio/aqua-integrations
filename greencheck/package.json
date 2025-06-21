@@ -4,13 +4,15 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "serve": "nodemon server.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "Apache-2.0",
   "type": "commonjs",
   "dependencies": {
+    "aqua-js-sdk": "^3.2.1-41",
     "axios": "^1.10.0",
     "axios-cookiejar-support": "^6.0.2",
     "body-parser": "^2.2.0",
@@ -22,5 +24,8 @@
     "siwe": "^3.0.0",
     "tough-cookie": "^5.1.2",
     "twilio": "^5.7.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   }
 }
