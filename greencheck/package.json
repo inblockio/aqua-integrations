@@ -22,8 +22,10 @@
     "express": "^5.1.0",
     "express-session": "^1.18.1",
     "siwe": "^3.0.0",
+    "sqlite3": "^5.1.7",
     "tough-cookie": "^5.1.2",
-    "twilio": "^5.7.1"
+    "twilio": "^5.7.1",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

@@ -4,6 +4,7 @@
    ─────────────────────────────────────────────────────────────────
    server.mjs  – Express server: SIWE auth + Twilio Verify SMS OTP
    login.mjs   – Headless client that signs‑in, triggers Verify OTP
+   db.mjs      - SQLite database for session management
 
    .env example (only two Twilio creds needed plus Verify Service):
      TWILIO_ACCOUNT_SID=ACxxx...
@@ -20,7 +21,15 @@ import cors from 'cors';
 import twilio from 'twilio';
 import { SiweMessage, generateNonce } from 'siwe';
 import Aquafier from 'aqua-js-sdk';
-import * as fs from "fs"
+import * as fs from "fs";
+import { v4 as uuidv4 } from 'uuid';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import * as db from './db.mjs';
+
+// Get the directory of the current module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 
@@ -121,7 +130,10 @@ app.use(
     secret: process.env.SESSION_SECRET || '🔒 change-me',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false }
+    cookie: { 
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
   })
 );
 
@@ -129,8 +141,21 @@ app.use(
 app.use(express.static('public'));
 
 /* ─────────────────────────  helpers  ───────────────────────── */
-function requireAuth(req, res, next) {
-  if (!req.session.siwe) return res.status(401).send('⛔  Not authenticated');
+async function requireAuth(req, res, next) {
+  // Get session ID from cookie
+  const sessionId = req.session.sessionId;
+  if (!sessionId) return res.status(401).send('⛔  Not authenticated');
+  
+  // Check if session exists in database
+  const sessionData = await db.getSession(sessionId);
+  if (!sessionData) return res.status(401).send('⛔  Session expired or invalid');
+  
+  // Add session data to request for use in route handlers
+  req.siwe = {
+    address: sessionData.address,
+    chainId: sessionData.chain_id
+  };
+  
   next();
 }
 
@@ -138,6 +163,40 @@ function requireAuth(req, res, next) {
 // Serve index.html at the root URL
 app.get('/', (req, res) => {
   res.sendFile('index.html', { root: './public' });
+});
+
+// Session status endpoint
+app.get('/session-status', async (req, res) => {
+  const sessionId = req.session.sessionId;
+  if (!sessionId) {
+    return res.json({ authenticated: false });
+  }
+  
+  const sessionData = await db.getSession(sessionId);
+  if (!sessionData) {
+    return res.json({ authenticated: false });
+  }
+  
+  const phoneData = await db.getPhoneVerification(sessionId);
+  
+  return res.json({
+    authenticated: true,
+    address: sessionData.address,
+    chainId: sessionData.chain_id,
+    phone: phoneData?.phone || null,
+    phoneVerified: phoneData?.verified || false,
+    expiresAt: new Date(sessionData.expires_at * 1000).toISOString()
+  });
+});
+
+// Logout endpoint
+app.post('/logout', async (req, res) => {
+  const sessionId = req.session.sessionId;
+  if (sessionId) {
+    await db.deleteSession(sessionId);
+    req.session.destroy();
+  }
+  res.json({ ok: true, message: 'Logged out successfully' });
 });
 
 // 1️⃣  Nonce for SIWE
@@ -158,7 +217,24 @@ app.post('/verify', async (req, res) => {
       domain: 'localhost'
     });
     if (!success) throw new Error('SIWE verification failed');
-    req.session.siwe = fields;
+    
+    // Generate a unique session ID
+    const sessionId = uuidv4();
+    
+    // Store session in database
+    const created = await db.createSession(
+      sessionId,
+      fields.address,
+      req.session.nonce,
+      fields.chainId,
+      24 * 60 * 60 // 24 hours expiry
+    );
+    
+    if (!created) throw new Error('Failed to create session');
+    
+    // Store session ID in cookie
+    req.session.sessionId = sessionId;
+    
     res.json({ ok: true, address: fields.address });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });
@@ -177,16 +253,23 @@ app.post('/sms-request', requireAuth, async (req, res) => {
     return res.status(500).json({ ok: false, error: 'Failed to start verification' });
   }
 
-  // Stash phone in session so we know what to check later.
-  req.session.pendingPhone = phone;
+  // Store pending phone in database
+  await db.setPendingPhone(req.session.sessionId, phone);
+  
   res.json({ ok: true, message: 'Code sent via SMS' });
 });
 
 // 4️⃣  Check OTP
 app.post('/sms-verify', requireAuth, async (req, res) => {
   const { code } = req.body; // code = OTP digits
-  const phone = req.session.pendingPhone;
-  if (!phone) return res.status(400).json({ ok: false, error: 'No verification in progress' });
+  
+  // Get phone from database
+  const phoneData = await db.getPhoneVerification(req.session.sessionId);
+  if (!phoneData || !phoneData.pending_phone) {
+    return res.status(400).json({ ok: false, error: 'No verification in progress' });
+  }
+  
+  const phone = phoneData.pending_phone;
   if (!code) return res.status(400).json({ ok: false, error: 'Code required' });
 
   try {
@@ -196,19 +279,25 @@ app.post('/sms-verify', requireAuth, async (req, res) => {
     return res.status(400).json({ ok: false, error: err.message });
   }
 
-  req.session.phoneVerified = true;
-  req.session.phone = phone;
-  delete req.session.pendingPhone;
+  // Update phone verification in database
+  await db.verifyPhone(req.session.sessionId);
+  
+  // Refresh session expiry
+  await db.updateSessionExpiry(req.session.sessionId, 24 * 60 * 60);
+  
   res.json({ ok: true, phone });
 });
 
 // 5️⃣  Example protected endpoint
 app.get('/me', requireAuth, async (req, res) => {
+  // Get phone verification data from database
+  const phoneData = await db.getPhoneVerification(req.session.sessionId);
+  
   const formObject = {
-    address: req.session.siwe.address,
-    chainId: req.session.siwe.chainId,
-    phone: req.session.phone,
-    phoneVerified: !!req.session.phoneVerified
+    address: req.siwe.address,
+    chainId: req.siwe.chainId,
+    phone: phoneData?.phone || null,
+    phoneVerified: phoneData?.verified || false
   }
 
   const aquafier = new Aquafier();
@@ -218,48 +307,119 @@ app.get('/me', requireAuth, async (req, res) => {
     fileContent: JSON.stringify(formObject),
     path: "./info.json"
   };
-
-  const credentials = {
-    "mnemonic": MNEMONIC,
-    "nostr_sk": process.env.NOSTR_SK,
-    "did_key": process.env.DID_KEY,
-    "alchemy_key": process.env.ALCHEMY_KEY,
-    "witness_eth_network": "sepolia",
-    "witness_eth_platform": "metamask",
-    "witness_method": "cli",
-    "p12_password": "123456"
-  };
-
+  
+  // Get platform from query parameter (default to 'web')
+  const platform = req.query.platform || 'web';
+  console.log(`Using platform: ${platform}`);
+  
+  // Create genesis revision
   const result = await aquafier.createGenesisRevision(fileObject, true, true, false);
 
   let aquaTree = null;
   if (result.isOk()) {
     aquaTree = result.data.aquaTree;
-    console.log("AquaTree: ", aquaTree)
-    const aquaTreeWrapper = {
-      aquaTree: aquaTree,
-      revision: "",
-      fileObject: fileObject
+    console.log("Genesis AquaTree created");
+    
+    // Only sign if platform is 'cli'
+    if (platform === 'cli') {
+      const credentials = {
+        "mnemonic": MNEMONIC,
+        "nostr_sk": process.env.NOSTR_SK,
+        "did_key": process.env.DID_KEY,
+        "alchemy_key": process.env.ALCHEMY_KEY,
+        "witness_eth_network": "sepolia",
+        "witness_eth_platform": "metamask",
+        "witness_method": "cli",
+        "p12_password": "123456"
+      };
+      
+      const aquaTreeWrapper = {
+        aquaTree: aquaTree,
+        revision: "",
+        fileObject: fileObject
+      }
+      
+      console.log("Signing AquaTree with CLI credentials");
+      const signingResult = await aquafier.signAquaTree(aquaTreeWrapper, "cli", credentials, true);
+      if (signingResult.isOk()) {
+        aquaTree = signingResult.data.aquaTree;
+        console.log("Signed AquaTree successfully");
+      } else {
+        console.error("Failed to sign AquaTree:", signingResult.error);
+      }
+    } else if (platform === 'web') {
+      // For web, we don't sign automatically - the client will need to handle signing
+      console.log("Web platform detected - returning unsigned AquaTree for client-side signing");
     }
-    const signingResult = await aquafier.signAquaTree(aquaTreeWrapper, "cli", credentials, true);
-    if (signingResult.isOk()) {
-      aquaTree = signingResult.data.aquaTree;
-      console.log("Signed AquaTree: ", aquaTree)
-    }
+  } else {
+    console.error("Failed to create genesis revision:", result.error);
+    return res.status(500).json({ error: "Failed to create genesis revision" });
   }
 
-  // Write to a file
+  // Write to files
+  const timestamp = Date.now();
+  const filePath = `./info_${timestamp}.json`;
+  const aquaFilePath = `./info_${timestamp}.aqua.json`;
+  
   // Write the form to a file 
-  fs.writeFileSync("./info.json", JSON.stringify(formObject));
+  fs.writeFileSync(filePath, JSON.stringify(formObject));
   // Write the aquaTree to a file
-  fs.writeFileSync("./info.json.aqua.json", JSON.stringify(aquaTree));
+  fs.writeFileSync(aquaFilePath, JSON.stringify(aquaTree));
+  
+  console.log(`Files written to ${filePath} and ${aquaFilePath}`);
 
-  res.json({ formObject, aquaTree });
+  // Return appropriate response based on platform
+  if (platform === 'cli') {
+    res.json({ 
+      formObject, 
+      aquaTree,
+      signed: true,
+      platform: 'cli'
+    });
+  } else {
+    res.json({ 
+      formObject, 
+      fileObject,
+      aquaTree,
+      signed: false,
+      platform: 'web',
+      message: "AquaTree needs to be signed on the client side using MetaMask"
+    });
+  }
+});
+
+// Database maintenance endpoint (for admin use)
+app.get('/admin/db-status', async (req, res) => {
+  try {
+    // Only allow in development mode
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ error: 'Not available in production' });
+    }
+    
+    // Get all sessions
+    const sessions = await db.database.all('SELECT * FROM sessions', []);
+    const phoneVerifications = await db.database.all('SELECT * FROM phone_verifications', []);
+    
+    res.json({
+      sessions: sessions.map(s => ({
+        ...s,
+        created_at_date: new Date(s.created_at * 1000).toISOString(),
+        expires_at_date: new Date(s.expires_at * 1000).toISOString()
+      })),
+      phoneVerifications
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(3000, async () => {
-  // TODO: Make sure fetching logs works
-  // const verificationLogs = await getVerificationDetails("VE9ef6d135035084541f49c1938332f55a");
-  // console.log("Verification logs: ", verificationLogs);
-  console.log('🪄  SIWE + Twilio Verify server → http://localhost:3000');
+  // Run initial cleanup of expired sessions
+  const cleanedCount = await db.cleanupExpiredSessions();
+  if (cleanedCount > 0) {
+    console.log(`Cleaned up ${cleanedCount} expired sessions on startup`);
+  }
+  
+  console.log('🪄  SIWE + Twilio Verify server with SQLite session storage → http://localhost:3000');
+  console.log(`SQLite database initialized at ${join(__dirname, 'sessions.db')}`);
 });

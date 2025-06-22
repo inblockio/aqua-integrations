@@ -1,29 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Minimal SIWE + SMS OTP</title>
   <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 2rem; }
-    button { margin: 0.5rem 0; padding: 0.4rem 0.8rem; }
-    input { padding: 0.4rem; }
-    #status { margin-top: 1rem; white-space: pre-line; background:#f4f4f4; padding: 1rem; border-radius: 8px; }
+    body {
+      font-family: system-ui, Arial, sans-serif;
+      margin: 2rem;
+    }
+
+    button {
+      margin: 0.5rem 0;
+      padding: 0.4rem 0.8rem;
+    }
+
+    input {
+      padding: 0.4rem;
+    }
+
+    #status {
+      margin-top: 1rem;
+      white-space: pre-line;
+      background: #f4f4f4;
+      padding: 1rem;
+      border-radius: 8px;
+    }
   </style>
 </head>
+
 <body>
   <h1>Sign‑In With Ethereum + SMS OTP</h1>
 
   <section>
-    <button id="connect">1️⃣ Connect MetaMask</button><br />
-    <button id="signin" disabled>2️⃣ Sign‑In with Ethereum</button>
+    <button id="connect">1️⃣ Connect MetaMask</button><br />
+    <button id="signin" disabled>2️⃣ Sign‑In with Ethereum</button>
   </section>
 
   <section style="margin-top:1rem;">
     <input id="phone" placeholder="+15555550123" />
-    <button id="send" disabled>3️⃣ Send SMS OTP</button><br />
+    <button id="send" disabled>3️⃣ Send SMS OTP</button><br />
     <input id="code" placeholder="Enter OTP" />
-    <button id="verify" disabled>4️⃣ Verify OTP</button>
+    <button id="verify" disabled>4️⃣ Verify OTP</button>
+  </section>
+
+  <section style="margin-top:1rem;">
+    <button id="logout" disabled>Logout</button>
+    <button id="check-session">Check Session Status</button>
   </section>
 
   <pre id="status">Status:
@@ -31,83 +55,175 @@
 - SIWE: (not signed in)
 - Phone: (not verified)</pre>
 
-<script type="module">
-import { ethers } from 'https://esm.sh/ethers@6?bundle';
-import { SiweMessage } from 'https://esm.sh/siwe@3?bundle';
-import axios from 'https://esm.sh/axios@1?bundle';
-import { wrapper } from 'https://esm.sh/axios-cookiejar-support@6?bundle';
-import { CookieJar } from 'https://esm.sh/tough-cookie@5?bundle';
+  <script type="module">
+    import { ethers } from 'https://esm.sh/ethers@6?bundle';
+    import { SiweMessage } from 'https://esm.sh/siwe@3?bundle';
+    import axios from 'https://esm.sh/axios@1?bundle';
+    import { wrapper } from 'https://esm.sh/axios-cookiejar-support@6?bundle';
+    import { CookieJar } from 'https://esm.sh/tough-cookie@5?bundle';
+    import Aquafier from 'https://esm.sh/aqua-js-sdk@3.2.1-41';
 
-(async () => {
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  let signer, address, chainId;
+    (async () => {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      let signer, address, chainId;
 
-  const $ = (id) => document.getElementById(id);
-  const status = $('status');
-  const append = (msg) => (status.textContent += "\n" + msg);
-  const api = wrapper(axios.create({ baseURL: 'http://localhost:3000', withCredentials: true, jar: new CookieJar() }));
+      const $ = (id) => document.getElementById(id);
+      const status = $('status');
+      const append = (msg) => (status.textContent += "\n" + msg);
+      const api = wrapper(axios.create({ baseURL: 'http://localhost:3000', withCredentials: true, jar: new CookieJar() }));
 
-  $('connect').onclick = async () => {
-    try {
-      await window.ethereum.request({ method: 'eth_requestAccounts' });
-      signer = await provider.getSigner();
-      address = await signer.getAddress();
-      chainId = (await provider.getNetwork()).chainId;
-      append('✅ Wallet connected: ' + address);
-      $('signin').disabled = false;
-    } catch (err) {
-      alert(err.message || err);
-    }
-  };
+      // Check session status on page load
+      checkSessionStatus();
 
-  $('signin').onclick = async () => {
-    try {
-      const { data: nonce } = await api.get('/nonce');
-      const msgObj = new SiweMessage({
-        domain: 'localhost',
-        address,
-        statement: 'Sign in with Ethereum (Twilio Verify OTP)',
-        uri: 'http://localhost:3000',
-        version: '1',
-        chainId,
-        nonce,
-        //issuedAt: new Date().toISOString()
-      });
-      const message = msgObj.prepareMessage();
-      const signature = await signer.signMessage(message);
-      const res = await api.post('/verify', { message, signature });
-      if (!res.data.ok) throw new Error(JSON.stringify(res));
-      append('✅ SIWE verified for ' + res.address);
-      $('send').disabled = false;
-    } catch (err) {
-      alert(err.message || err);
-    }
-  };
+      async function checkSessionStatus() {
+        try {
+          const { data } = await api.get('/session-status');
+          if (data.authenticated) {
+            append(`🔑 Already authenticated as ${data.address}`);
+            append(`📱 Phone status: ${data.phoneVerified ? `Verified (${data.phone})` : 'Not verified'}`);
+            append(`⏱️ Session expires at: ${data.expiresAt}`);
 
-  $('send').onclick = async () => {
-    try {
-      const phone = $('phone').value.trim();
-      const res = await api.post('/sms-request', { phone });
+            // Enable appropriate buttons
+            $('send').disabled = false;
+            $('logout').disabled = false;
 
-      if (!res.data.ok) throw new Error(res.data.error || 'SMS request failed');
-      append('📲 OTP sent to ' + phone);
-      $('verify').disabled = false;
-    } catch (err) {
-      alert(err.message || err);
-    }
-  };
+            if (data.phoneVerified) {
+              // If phone is verified, fetch /me data with 'web' platform
+              try {
+                const { data: me } = await api.get('/me?platform=web');
+                append('👤 /me data available');
 
-  $('verify').onclick = async () => {
-    try {
-      const code = $('code').value.trim();
-      const res = await api.post('/sms-verify', { code });
-      if (!res.data.ok) throw new Error(res.data.error || 'Verification failed');
-      append('✅ Phone verified: ' + res.data.phone);
-    } catch (err) {
-      alert(err.message || err);
-    }
-  };
-})();
-</script>
+                // Check if AquaTree needs client-side signing
+                if (!me.signed && me.platform === 'web') {
+                  append('🔑 AquaTree needs to be signed with MetaMask');
+                }
+              } catch (err) {
+                append('❌ Error fetching /me data');
+              }
+            } else {
+              // If not verified, enable verification
+              $('verify').disabled = false;
+            }
+          } else {
+            append('Not authenticated. Please connect wallet and sign in.');
+          }
+        } catch (err) {
+          console.error('Error checking session:', err);
+        }
+      }
+
+      $('connect').onclick = async () => {
+        try {
+          await window.ethereum.request({ method: 'eth_requestAccounts' });
+          signer = await provider.getSigner();
+          address = await signer.getAddress();
+          chainId = (await provider.getNetwork()).chainId;
+          append('✅ Wallet connected: ' + address);
+          $('signin').disabled = false;
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+      $('signin').onclick = async () => {
+        try {
+          const { data: nonce } = await api.get('/nonce');
+          const msgObj = new SiweMessage({
+            domain: 'localhost',
+            address,
+            statement: 'Sign in with Ethereum (Twilio Verify OTP)',
+            uri: 'http://localhost:3000',
+            version: '1',
+            chainId,
+            nonce,
+          });
+          const message = msgObj.prepareMessage();
+          const signature = await signer.signMessage(message);
+          const res = await api.post('/verify', { message, signature });
+          if (!res.data.ok) throw new Error(JSON.stringify(res));
+          append('✅ SIWE verified for ' + res.data.address);
+          $('send').disabled = false;
+          $('logout').disabled = false;
+
+          // Check session status after login
+          await checkSessionStatus();
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+      $('send').onclick = async () => {
+        try {
+          const phone = $('phone').value.trim();
+          const res = await api.post('/sms-request', { phone });
+
+          if (!res.data.ok) throw new Error(res.data.error || 'SMS request failed');
+          append('📲 OTP sent to ' + phone);
+          $('verify').disabled = false;
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+      $('verify').onclick = async () => {
+        try {
+          const code = $('code').value.trim();
+          const res = await api.post('/sms-verify', { code });
+          if (!res.data.ok) throw new Error(res.data.error || 'Verification failed');
+          append('✅ Phone verified: ' + res.data.phone);
+
+          // Fetch protected data after verification with 'web' platform
+          try {
+            const { data } = await api.get('/me?platform=web');
+            append('👤 /me data received');
+
+            // Check if AquaTree needs client-side signing
+            if (!data.signed && data.platform === 'web') {
+              append('🔑 AquaTree needs to be signed with MetaMask');
+              let aquaTree = data.aquaTree
+              let fileObject = data.fileObject
+              let aquafier = new Aquafier()
+              const aquaTreeWrapper = {
+                aquaTree: aquaTree,
+                revision: "",
+                fileObject: fileObject
+              }
+              let aquaTreeSigned = await aquafier.signAquaTree(aquaTreeWrapper, "metamask", {}, true);
+              console.log("Aquatreesigned: ", aquaTreeSigned)
+              // Here you would typically implement the client-side signing logic
+              // using the user's connected MetaMask wallet
+            }
+          } catch (err) {
+            console.log(err)
+            append('❌ Error fetching /me data: ' + (err.response?.data?.error || err.message));
+          }
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+      $('logout').onclick = async () => {
+        try {
+          await api.post('/logout');
+          append('🔓 Logged out successfully');
+          $('signin').disabled = true;
+          $('send').disabled = true;
+          $('verify').disabled = true;
+          $('logout').disabled = true;
+
+          // Check session status after logout
+          await checkSessionStatus();
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+      $('check-session').onclick = async () => {
+        status.textContent = 'Status:\n';
+        await checkSessionStatus();
+      };
+    })();
+  </script>
 </body>
+
 </html>
