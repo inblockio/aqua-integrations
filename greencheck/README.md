@@ -15,7 +15,7 @@ Here you will test the full workflow with generation of aqua files
 node login.mjs
 ```
 
-This will generate `info.json` and `info.json.aqua.json` files which you can now import to `aquafier` or `cli` for testing
+This will generate `info_NUMBER.json` and `info_NUMBER.json.aqua.json` files which you can now import to `aquafier` or `cli` for testing
 
 4. Web login
 
