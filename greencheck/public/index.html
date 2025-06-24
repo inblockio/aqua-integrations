@@ -52,7 +52,7 @@
 
   <section style="margin-top:1rem;">
     <button id="download_raw_data" disabled>Download Raw data</button>
-    <button id="download_aqua_data">Download Aqua tree</button>
+    <button id="download_aqua_data" disabled>Download Aqua tree</button>
   </section>
 
   <pre id="status">Status:
@@ -188,6 +188,7 @@
 
             // Check if AquaTree needs client-side signing
             if (!data.signed && data.platform === 'web') {
+
               append(`🔆  Attestation Payload: ${data.aquaTree}`);
               append('🔑 AquaTree needs to be signed with MetaMask');
               console.log(`Aqua tree ${JSON.stringify(data.aquaTree)} needs to be signed fileObject ${JSON.stringify(data.fileObject)}`);
@@ -210,19 +211,31 @@
                 p12_password: "",
                 p12_content: "",
               }
-              let aquaTreeSigned = await aquafier.signAquaTree(aquaTreeWrapper, "metamask", creds, true);
-              console.log("Aquatreesigned: ", aquaTreeSigned)
-              const data = JSON.parse(aquaTreeSigned, null, 2);
+              let aquaTreeSignedRes = await aquafier.signAquaTree(aquaTreeWrapper, "metamask", creds, true);
 
-              append(`▶️  aquaTree: ${data}`);
+              if(aquaTreeSignedRes.isErr()) {
+                append(`❌ Error signing AquaTree: ${JSON.stringify(aquaTreeSignedRes.data, null, 2)}`);
+                return;
+              }
+
+              let aquaTreeSigned =aquaTreeSignedRes.data.aquaTree
+
+              console.log("Aquatreesigned: ", aquaTreeSigned)
+              const dataJson = JSON.parse(aquaTreeSigned, null, 2);
+
+              append(`▶️  aquaTree: ${dataJson}`);
               // Here you would typically implement the client-side signing logic
               // using the user's connected MetaMask wallet
 
               $('download_raw_data').disabled = false;
               $('download_aqua_data').disabled = false;
 
+               $('signin').disabled = true;
+               $('send').disabled = true;
+              $('connect').disabled = true;
+
               rawDataForDownload = JSON.stringify(aquaTree, null, 2);
-              aquaTreeDataForDownload = JSON.stringify(data, null, 2);
+              aquaTreeDataForDownload = JSON.stringify(dataJson, null, 2);
 
 
             }
