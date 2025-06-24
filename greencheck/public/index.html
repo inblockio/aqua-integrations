@@ -221,7 +221,7 @@
               let aquaTreeSigned =aquaTreeSignedRes.data.aquaTree
 
               console.log("Aquatreesigned: ", aquaTreeSigned)
-              const dataJson = JSON.parse(aquaTreeSigned, null, 2);
+              const dataJson = JSON.stringify(aquaTreeSigned, null, 2);
 
               append(`▶️  aquaTree: ${dataJson}`);
               // Here you would typically implement the client-side signing logic
