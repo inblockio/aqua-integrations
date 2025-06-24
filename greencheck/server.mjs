@@ -293,11 +293,16 @@ app.get('/me', requireAuth, async (req, res) => {
   // Get phone verification data from database
   const phoneData = await db.getPhoneVerification(req.session.sessionId);
   
+  const nouwUnix = Math.floor(Date.now() / 1000)
+  const exp= nouwUnix + 12 * 30 * 24 * 60 * 60 // 12 months from now
   const formObject = {
     address: req.siwe.address,
-    chainId: req.siwe.chainId,
+    // chainId: req.siwe.chainId,
     phone: phoneData?.phone || null,
-    phoneVerified: phoneData?.verified || false
+    verifier : "Twilio",
+    issuing_date: nouwUnix,
+    expiration_date: exp
+    // phoneVerified: phoneData?.verified || false
   }
 
   const aquafier = new Aquafier();

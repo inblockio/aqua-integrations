@@ -50,6 +50,11 @@
     <button id="check-session">Check Session Status</button>
   </section>
 
+  <section style="margin-top:1rem;">
+    <button id="download_raw_data" disabled>Download Raw data</button>
+    <button id="download_aqua_data">Download Aqua tree</button>
+  </section>
+
   <pre id="status">Status:
 - Wallet: (not connected)
 - SIWE: (not signed in)
@@ -165,6 +170,8 @@
         }
       };
 
+      let aquaTreeDataForDownload = null;
+      let rawDataForDownload = null;
       $('verify').onclick = async () => {
         try {
           const code = $('code').value.trim();
@@ -177,9 +184,13 @@
             const { data } = await api.get('/me?platform=web');
             append('👤 /me data received');
 
+
+
             // Check if AquaTree needs client-side signing
             if (!data.signed && data.platform === 'web') {
+              append(`🔆  Attestation Payload: ${data.aquaTree}`);
               append('🔑 AquaTree needs to be signed with MetaMask');
+              console.log(`Aqua tree ${JSON.stringify(data.aquaTree)} needs to be signed fileObject ${JSON.stringify(data.fileObject)}`);
               let aquaTree = data.aquaTree
               let fileObject = data.fileObject
               let aquafier = new Aquafier()
@@ -188,10 +199,32 @@
                 revision: "",
                 fileObject: fileObject
               }
-              let aquaTreeSigned = await aquafier.signAquaTree(aquaTreeWrapper, "metamask", {}, true);
+              const creds = {
+                mnemonic: "",
+                nostr_sk: "",
+                did_key: "",
+                alchemy_key: "",
+                witness_eth_network: "sepolia",
+                witness_method: "metamask",
+                // p12 config
+                p12_password: "",
+                p12_content: "",
+              }
+              let aquaTreeSigned = await aquafier.signAquaTree(aquaTreeWrapper, "metamask", creds, true);
               console.log("Aquatreesigned: ", aquaTreeSigned)
+              const data = JSON.parse(aquaTreeSigned, null, 2);
+
+              append(`▶️  aquaTree: ${data}`);
               // Here you would typically implement the client-side signing logic
               // using the user's connected MetaMask wallet
+
+              $('download_raw_data').disabled = false;
+              $('download_aqua_data').disabled = false;
+
+              rawDataForDownload = JSON.stringify(aquaTree, null, 2);
+              aquaTreeDataForDownload = JSON.stringify(data, null, 2);
+
+
             }
           } catch (err) {
             console.log(err)
@@ -210,6 +243,8 @@
           $('send').disabled = true;
           $('verify').disabled = true;
           $('logout').disabled = true;
+          $('download_raw_data').disabled = true;
+          $('download_aqua_data').disabled = true;
 
           // Check session status after logout
           await checkSessionStatus();
@@ -221,6 +256,41 @@
       $('check-session').onclick = async () => {
         status.textContent = 'Status:\n';
         await checkSessionStatus();
+      };
+
+      // Download AquaTree data as data.json
+      $('download_aqua_data').onclick = () => {
+        if (!aquaTreeDataForDownload) {
+          alert('No AquaTree data available for download.');
+          return;
+        }
+        const blob = new Blob([aquaTreeDataForDownload], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'data.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+
+      // Download AquaTree data as data.json
+      $('download_raw_data').onclick = () => {
+        if (!rawDataForDownload) {
+          alert('No raw data available for download.');
+          return;
+        }
+        const blob = new Blob([rawDataForDownload], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'data.aqua.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
       };
     })();
   </script>
