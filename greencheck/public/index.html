@@ -233,9 +233,10 @@
                $('signin').disabled = true;
                $('send').disabled = true;
               $('connect').disabled = true;
+              $('verify').disabled = true;
 
-              rawDataForDownload = JSON.stringify(aquaTree, null, 2);
-              aquaTreeDataForDownload = JSON.stringify(dataJson, null, 2);
+              rawDataForDownload = aquaTree//JSON.stringify(aquaTree, null, 2);
+              aquaTreeDataForDownload =dataJson; //JSON.stringify(dataJson, null, 2);
 
 
             }
