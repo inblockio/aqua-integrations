@@ -213,30 +213,56 @@
               }
               let aquaTreeSignedRes = await aquafier.signAquaTree(aquaTreeWrapper, "metamask", creds, true);
 
-              if(aquaTreeSignedRes.isErr()) {
-                append(`❌ Error signing AquaTree: ${JSON.stringify(aquaTreeSignedRes.data, null, 2)}`);
+              if (aquaTreeSignedRes.isErr()) {
+                append(`❌ Error client signing AquaTree: ${JSON.stringify(aquaTreeSignedRes.data, null, 2)}`);
                 return;
               }
 
-              let aquaTreeSigned =aquaTreeSignedRes.data.aquaTree
+              let aquaTreeSignedForApi = aquaTreeSignedRes.data.aquaTree
 
+
+              //todo send 
+              const res2 = await api.post('/server-sign', { data: aquaTreeSignedForApi , fileObject :  data.fileObject});
+
+              if (!res2.data.ok){
+                append(`❌ Error signing AquaTree with API: ${JSON.stringify(res2.data, null, 2)}`);
+                throw new Error(res2.data.error || 'Api Signing failed');
+              } 
+
+
+              append('✅ AquaTree signed successfully with API key');
+              let aquaTreeSigned = res2.data.aquaTree;
               console.log("Aquatreesigned: ", aquaTreeSigned)
               const dataJson = JSON.stringify(aquaTreeSigned, null, 2);
 
-              append(`▶️  aquaTree: ${dataJson}`);
-              // Here you would typically implement the client-side signing logic
-              // using the user's connected MetaMask wallet
 
+              // Create a separate div for JSON display
+              let aquaTreeJsonData = JSON.stringify(aquaTreeSigned, null, 2)
+              const jsonDiv = document.createElement('div');
+              jsonDiv.style.cssText = `
+                  background: #f8f9fa; 
+                  border: 1px solid #dee2e6; 
+                  border-radius: 4px; 
+                  padding: 1rem; 
+                  margin: 0.5rem 0; 
+                  font-family: monospace; 
+                  white-space: pre; 
+                  overflow-x: auto;
+                `;
+              jsonDiv.textContent = `🌳 AquaTree:\n${aquaTreeJsonData}`;
+              status.parentNode.insertBefore(jsonDiv, status.nextSibling);
+
+              
               $('download_raw_data').disabled = false;
               $('download_aqua_data').disabled = false;
 
-               $('signin').disabled = true;
-               $('send').disabled = true;
+              $('signin').disabled = true;
+              $('send').disabled = true;
               $('connect').disabled = true;
               $('verify').disabled = true;
 
-              rawDataForDownload = aquaTree//JSON.stringify(aquaTree, null, 2);
-              aquaTreeDataForDownload =dataJson; //JSON.stringify(dataJson, null, 2);
+              rawDataForDownload = JSON.stringify(data.fileObject.fileContent, null, 2)//JSON.stringify(aquaTree, null, 2);
+              aquaTreeDataForDownload = aquaTreeJsonData; //JSON.stringify(dataJson, null, 2);
 
 
             }
@@ -282,7 +308,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'data.json';
+        a.download = 'data.aqua.json';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -300,7 +326,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'data.aqua.json';
+        a.download = 'data.json';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
