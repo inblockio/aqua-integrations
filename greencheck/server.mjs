@@ -309,7 +309,7 @@ app.get('/me', requireAuth, async (req, res) => {
 
   const fileObject = {
     fileName: "info.json",
-    fileContent: JSON.stringify(formObject),
+    fileContent: JSON.stringify(formObject, null, 2), // this can cause file hash mismatch because of formatting
     path: "./info.json"
   };
 
