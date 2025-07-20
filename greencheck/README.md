@@ -1,3 +1,25 @@
+## File Descriptions
+
+### server.mjs
+Express server that provides SIWE (Sign-In with Ethereum) authentication combined with Twilio Verify SMS OTP verification. Features include:
+- SIWE authentication with nonce generation and signature verification
+- SMS verification using Twilio Verify service
+- SQLite session management with expiry handling
+- AquaTree creation and signing for credential issuance
+- Protected endpoints requiring authentication
+- Phone verification workflow with pending/verified states
+- Support for both web and CLI platforms with different signing methods
+
+### login.mjs
+Headless CLI client for testing the authentication flow. Capabilities include:
+- Wallet creation from mnemonic for SIWE signing
+- Cookie-based session persistence across runs
+- Automatic session status checking and reuse
+- Interactive OTP entry for SMS verification
+- Full authentication workflow testing
+- AquaTree generation with CLI platform credentials
+- Persistent cookie storage for maintaining sessions
+
 ## How to run
 
 1. Intall the dependencies - `npm i`
