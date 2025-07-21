@@ -25,9 +25,17 @@ node login.mjs
 
 ### Core Components
 
-- **server.mjs** - Main Express server with authentication endpoints and AquaTree integration
-- **login.mjs** - Headless CLI client with cookie persistence for testing full auth workflow
+**Server Architecture (Modular):**
+- **server.mjs** - Main Express server setup and configuration, route mounting
+- **services/twilio.mjs** - Twilio Verify service integration for SMS and email OTP
+- **middleware/auth.mjs** - Authentication middleware and session validation
+- **routes/auth.mjs** - Authentication endpoints (SIWE, SMS/email verification)
+- **routes/protected.mjs** - Protected endpoints (AquaTree generation, server signing)
+- **routes/admin.mjs** - Administrative endpoints (database status)
 - **db.mjs** - SQLite database layer with session, phone and email verification management
+
+**Client Components:**
+- **login.mjs** - Headless CLI client with cookie persistence for testing full auth workflow
 - **public/index.html** - Complete web UI with MetaMask integration
 
 ### Database Schema
@@ -92,6 +100,15 @@ TEST_EMAIL=test@example.com
 - `twilio` (v5.7.1) - SMS verification
 - `ethers` (v6.14.4) - Ethereum interactions
 - `sqlite3` (v5.1.7) - Session storage
+
+## Modular Architecture Benefits
+
+The refactored codebase provides:
+- **Separation of concerns** - Each module has a single responsibility
+- **Easier testing** - Individual components can be tested in isolation
+- **Better maintainability** - Clear organization makes code easier to understand and modify
+- **Reusability** - Services and middleware can be reused across different routes
+- **Scalability** - New features can be added by creating new route modules
 
 ## File Generation
 
