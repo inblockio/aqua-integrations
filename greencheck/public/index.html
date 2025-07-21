@@ -31,7 +31,7 @@
 </head>
 
 <body>
-  <h1>Sign‑In With Ethereum + SMS OTP</h1>
+  <h1>Sign‑In With Ethereum + SMS + Email OTP</h1>
 
   <section>
     <button id="connect">1️⃣ Connect MetaMask</button><br />
@@ -40,9 +40,16 @@
 
   <section style="margin-top:1rem;">
     <input id="phone" placeholder="+15555550123" />
-    <button id="send" disabled>3️⃣ Send SMS OTP</button><br />
-    <input id="code" placeholder="Enter OTP" />
-    <button id="verify" disabled>4️⃣ Verify OTP</button>
+    <button id="send-sms" disabled>3️⃣ Send SMS OTP</button><br />
+    <input id="sms-code" placeholder="Enter SMS OTP" />
+    <button id="verify-sms" disabled>4️⃣ Verify SMS</button>
+  </section>
+
+  <section style="margin-top:1rem;">
+    <input id="email" placeholder="user@example.com" />
+    <button id="send-email" disabled>5️⃣ Send Email OTP</button><br />
+    <input id="email-code" placeholder="Enter Email OTP" />
+    <button id="verify-email" disabled>6️⃣ Verify Email</button>
   </section>
 
   <section style="margin-top:1rem;">
@@ -58,7 +65,8 @@
   <pre id="status">Status:
 - Wallet: (not connected)
 - SIWE: (not signed in)
-- Phone: (not verified)</pre>
+- Phone: (not verified)
+- Email: (not verified)</pre>
 
   <script type="module">
     import { ethers } from 'https://esm.sh/ethers@6?bundle';
@@ -86,13 +94,15 @@
           if (data.authenticated) {
             append(`🔑 Already authenticated as ${data.address}`);
             append(`📱 Phone status: ${data.phoneVerified ? `Verified (${data.phone})` : 'Not verified'}`);
+            append(`📧 Email status: ${data.emailVerified ? `Verified (${data.email})` : 'Not verified'}`);
             append(`⏱️ Session expires at: ${data.expiresAt}`);
 
-            // Enable appropriate buttons
-            $('send').disabled = false;
+            // Enable appropriate buttons based on verification status
+            $('send-sms').disabled = false;
+            $('send-email').disabled = false;
             $('logout').disabled = false;
 
-            if (data.phoneVerified) {
+            if (data.phoneVerified && data.emailVerified) {
               // If phone is verified, fetch /me data with 'web' platform
               try {
                 const { data: me } = await api.get('/me?platform=web');
@@ -106,8 +116,13 @@
                 append('❌ Error fetching /me data');
               }
             } else {
-              // If not verified, enable verification
-              $('verify').disabled = false;
+              // Enable verification buttons based on what's needed
+              if (!data.phoneVerified) {
+                $('verify-sms').disabled = false;
+              }
+              if (!data.emailVerified) {
+                $('verify-email').disabled = false;
+              }
             }
           } else {
             append('Not authenticated. Please connect wallet and sign in.');
@@ -147,7 +162,8 @@
           const res = await api.post('/verify', { message, signature });
           if (!res.data.ok) throw new Error(JSON.stringify(res));
           append('✅ SIWE verified for ' + res.data.address);
-          $('send').disabled = false;
+          $('send-sms').disabled = false;
+          $('send-email').disabled = false;
           $('logout').disabled = false;
 
           // Check session status after login
@@ -157,14 +173,27 @@
         }
       };
 
-      $('send').onclick = async () => {
+      $('send-sms').onclick = async () => {
         try {
           const phone = $('phone').value.trim();
           const res = await api.post('/sms-request', { phone });
 
           if (!res.data.ok) throw new Error(res.data.error || 'SMS request failed');
-          append('📲 OTP sent to ' + phone);
-          $('verify').disabled = false;
+          append('📲 SMS OTP sent to ' + phone);
+          $('verify-sms').disabled = false;
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+      $('send-email').onclick = async () => {
+        try {
+          const email = $('email').value.trim();
+          const res = await api.post('/email-request', { email });
+
+          if (!res.data.ok) throw new Error(res.data.error || 'Email request failed');
+          append('📧 Email OTP sent to ' + email);
+          $('verify-email').disabled = false;
         } catch (err) {
           alert(err.message || err);
         }
@@ -172,28 +201,52 @@
 
       let aquaTreeDataForDownload = null;
       let rawDataForDownload = null;
-      $('verify').onclick = async () => {
-        try {
-          const code = $('code').value.trim();
-          const res = await api.post('/sms-verify', { code });
-          if (!res.data.ok) throw new Error(res.data.error || 'Verification failed');
-          append('✅ Phone verified: ' + res.data.phone);
 
-          // Fetch protected data after verification with 'web' platform
-          try {
-            const { data } = await api.get('/me?platform=web');
+      $('verify-sms').onclick = async () => {
+        try {
+          const code = $('sms-code').value.trim();
+          const res = await api.post('/sms-verify', { code });
+          if (!res.data.ok) throw new Error(res.data.error || 'SMS verification failed');
+          append('✅ Phone verified: ' + res.data.phone);
+          
+          // Check if both verifications are complete
+          await checkVerificationStatus();
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+      $('verify-email').onclick = async () => {
+        try {
+          const code = $('email-code').value.trim();
+          const res = await api.post('/email-verify', { code });
+          if (!res.data.ok) throw new Error(res.data.error || 'Email verification failed');
+          append('✅ Email verified: ' + res.data.email);
+          
+          // Check if both verifications are complete
+          await checkVerificationStatus();
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+      async function checkVerificationStatus() {
+        try {
+          const { data } = await api.get('/session-status');
+          if (data.phoneVerified && data.emailVerified) {
+            // Both verified, fetch protected data
+            const { data: me } = await api.get('/me?platform=web');
             append('👤 /me data received');
 
 
 
             // Check if AquaTree needs client-side signing
-            if (!data.signed && data.platform === 'web') {
-
-              append(`🔆  Attestation Payload: ${data.aquaTree}`);
+            if (!me.signed && me.platform === 'web') {
+              append(`🔆  Attestation Payload: ${me.aquaTree}`);
               append('🔑 AquaTree needs to be signed with MetaMask');
-              console.log(`Aqua tree ${JSON.stringify(data.aquaTree)} needs to be signed fileObject ${JSON.stringify(data.fileObject)}`);
-              let aquaTree = data.aquaTree
-              let fileObject = data.fileObject
+              console.log(`Aqua tree ${JSON.stringify(me.aquaTree)} needs to be signed fileObject ${JSON.stringify(me.fileObject)}`);
+              let aquaTree = me.aquaTree
+              let fileObject = me.fileObject
               let aquafier = new Aquafier()
               const aquaTreeWrapper = {
                 aquaTree: aquaTree,
@@ -220,21 +273,16 @@
 
               let aquaTreeSignedForApi = aquaTreeSignedRes.data.aquaTree
 
-
-              //todo send 
-              const res2 = await api.post('/server-sign', { data: aquaTreeSignedForApi , fileObject :  data.fileObject});
+              const res2 = await api.post('/server-sign', { data: aquaTreeSignedForApi, fileObject: me.fileObject});
 
               if (!res2.data.ok){
                 append(`❌ Error signing AquaTree with API: ${JSON.stringify(res2.data, null, 2)}`);
                 throw new Error(res2.data.error || 'Api Signing failed');
               } 
 
-
               append('✅ AquaTree signed successfully with API key');
               let aquaTreeSigned = res2.data.aquaTree;
               console.log("Aquatreesigned: ", aquaTreeSigned)
-              const dataJson = JSON.stringify(aquaTreeSigned, null, 2);
-
 
               // Create a separate div for JSON display
               let aquaTreeJsonData = JSON.stringify(aquaTreeSigned, null, 2)
@@ -252,36 +300,35 @@
               jsonDiv.textContent = `🌳 AquaTree:\n${aquaTreeJsonData}`;
               status.parentNode.insertBefore(jsonDiv, status.nextSibling);
 
-              
               $('download_raw_data').disabled = false;
               $('download_aqua_data').disabled = false;
 
               $('signin').disabled = true;
-              $('send').disabled = true;
+              $('send-sms').disabled = true;
+              $('send-email').disabled = true;
               $('connect').disabled = true;
-              $('verify').disabled = true;
+              $('verify-sms').disabled = true;
+              $('verify-email').disabled = true;
 
-              rawDataForDownload = JSON.stringify(data.fileObject.fileContent, null, 2)//JSON.stringify(aquaTree, null, 2);
-              aquaTreeDataForDownload = aquaTreeJsonData; //JSON.stringify(dataJson, null, 2);
-
-
+              rawDataForDownload = JSON.stringify(me.fileObject.fileContent, null, 2);
+              aquaTreeDataForDownload = aquaTreeJsonData;
             }
-          } catch (err) {
-            console.log(err)
-            append('❌ Error fetching /me data: ' + (err.response?.data?.error || err.message));
           }
         } catch (err) {
-          alert(err.message || err);
+          console.log(err)
+          append('❌ Error fetching /me data: ' + (err.response?.data?.error || err.message));
         }
-      };
+      }
 
       $('logout').onclick = async () => {
         try {
           await api.post('/logout');
           append('🔓 Logged out successfully');
           $('signin').disabled = true;
-          $('send').disabled = true;
-          $('verify').disabled = true;
+          $('send-sms').disabled = true;
+          $('send-email').disabled = true;
+          $('verify-sms').disabled = true;
+          $('verify-email').disabled = true;
           $('logout').disabled = true;
           $('download_raw_data').disabled = true;
           $('download_aqua_data').disabled = true;

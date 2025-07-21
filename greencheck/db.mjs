@@ -49,6 +49,17 @@ function initDatabase() {
     )
   `);
 
+  // Create email_verifications table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS email_verifications (
+      session_id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      verified BOOLEAN DEFAULT 0,
+      pending_email TEXT,
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    )
+  `);
+
   console.log('Database tables initialized');
 }
 
@@ -135,8 +146,9 @@ export async function updateSessionExpiry(sessionId, expiresInSeconds = 86400) {
 
 export async function deleteSession(sessionId) {
   try {
-    // Delete phone verification first due to foreign key constraint
+    // Delete verifications first due to foreign key constraint
     await runAsync('DELETE FROM phone_verifications WHERE session_id = ?', [sessionId]);
+    await runAsync('DELETE FROM email_verifications WHERE session_id = ?', [sessionId]);
     // Then delete the session
     await runAsync('DELETE FROM sessions WHERE id = ?', [sessionId]);
     return true;
@@ -197,6 +209,61 @@ export async function getPhoneVerification(sessionId) {
     );
   } catch (err) {
     console.error('Error getting phone verification:', err.message);
+    return null;
+  }
+}
+
+// Email verification functions
+export async function setPendingEmail(sessionId, email) {
+  try {
+    const exists = await getAsync('SELECT 1 FROM email_verifications WHERE session_id = ?', [sessionId]);
+    
+    if (exists) {
+      await runAsync(
+        'UPDATE email_verifications SET pending_email = ? WHERE session_id = ?',
+        [email, sessionId]
+      );
+    } else {
+      await runAsync(
+        'INSERT INTO email_verifications (session_id, email, pending_email) VALUES (?, ?, ?)',
+        [sessionId, email, email]
+      );
+    }
+    return true;
+  } catch (err) {
+    console.error('Error setting pending email:', err.message);
+    return false;
+  }
+}
+
+export async function verifyEmail(sessionId) {
+  try {
+    const verification = await getAsync(
+      'SELECT pending_email FROM email_verifications WHERE session_id = ?',
+      [sessionId]
+    );
+    
+    if (!verification) return false;
+    
+    await runAsync(
+      'UPDATE email_verifications SET email = pending_email, verified = 1, pending_email = NULL WHERE session_id = ?',
+      [sessionId]
+    );
+    return true;
+  } catch (err) {
+    console.error('Error verifying email:', err.message);
+    return false;
+  }
+}
+
+export async function getEmailVerification(sessionId) {
+  try {
+    return await getAsync(
+      'SELECT email, verified, pending_email FROM email_verifications WHERE session_id = ?',
+      [sessionId]
+    );
+  } catch (err) {
+    console.error('Error getting email verification:', err.message);
     return null;
   }
 }

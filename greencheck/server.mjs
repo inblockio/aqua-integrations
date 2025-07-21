@@ -60,6 +60,18 @@ async function checkSmsVerification(to, code) {
     .verificationChecks.create({ to, code });
 }
 
+async function startEmailVerification(to) {
+  return twilioClient.verify.v2
+    .services(TWILIO_VERIFY_SERVICE_SID)
+    .verifications.create({ to, channel: 'email' });
+}
+
+async function checkEmailVerification(to, code) {
+  return twilioClient.verify.v2
+    .services(TWILIO_VERIFY_SERVICE_SID)
+    .verificationChecks.create({ to, code });
+}
+
 // async function fetchVerificationLogs(sid) {
 //   // Using the Twilio API client to fetch logs for a specific verification SID
 //   try {
@@ -178,6 +190,7 @@ app.get('/session-status', async (req, res) => {
   }
 
   const phoneData = await db.getPhoneVerification(sessionId);
+  const emailData = await db.getEmailVerification(sessionId);
 
   return res.json({
     authenticated: true,
@@ -185,6 +198,8 @@ app.get('/session-status', async (req, res) => {
     chainId: sessionData.chain_id,
     phone: phoneData?.phone || null,
     phoneVerified: phoneData?.verified || false,
+    email: emailData?.email || null,
+    emailVerified: emailData?.verified || false,
     expiresAt: new Date(sessionData.expires_at * 1000).toISOString()
   });
 });
@@ -288,10 +303,64 @@ app.post('/sms-verify', requireAuth, async (req, res) => {
   res.json({ ok: true, phone });
 });
 
-// 5️⃣  Example protected endpoint
+// 5️⃣  Initiate Email Verify challenge
+app.post('/email-request', requireAuth, async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ ok: false, error: 'Email address required' });
+
+  // Basic email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ ok: false, error: 'Invalid email format' });
+  }
+
+  try {
+    await startEmailVerification(email);
+  } catch (err) {
+    console.error('🛑  Twilio Email Verify initiation failed', err.message);
+    return res.status(500).json({ ok: false, error: 'Failed to start email verification' });
+  }
+
+  // Store pending email in database
+  await db.setPendingEmail(req.session.sessionId, email);
+
+  res.json({ ok: true, message: 'Verification code sent to email' });
+});
+
+// 6️⃣  Check Email OTP
+app.post('/email-verify', requireAuth, async (req, res) => {
+  const { code } = req.body;
+
+  // Get email from database
+  const emailData = await db.getEmailVerification(req.session.sessionId);
+  if (!emailData || !emailData.pending_email) {
+    return res.status(400).json({ ok: false, error: 'No email verification in progress' });
+  }
+
+  const email = emailData.pending_email;
+  if (!code) return res.status(400).json({ ok: false, error: 'Code required' });
+
+  try {
+    const result = await checkEmailVerification(email, code);
+    if (result.status !== 'approved') throw new Error('Incorrect code');
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: err.message });
+  }
+
+  // Update email verification in database
+  await db.verifyEmail(req.session.sessionId);
+
+  // Refresh session expiry
+  await db.updateSessionExpiry(req.session.sessionId, 24 * 60 * 60);
+
+  res.json({ ok: true, email });
+});
+
+// 7️⃣  Example protected endpoint
 app.get('/me', requireAuth, async (req, res) => {
-  // Get phone verification data from database
+  // Get verification data from database
   const phoneData = await db.getPhoneVerification(req.session.sessionId);
+  const emailData = await db.getEmailVerification(req.session.sessionId);
 
   const nouwUnix = Math.floor(Date.now() / 1000)
   const exp = nouwUnix + 12 * 30 * 24 * 60 * 60 // 12 months from now
@@ -299,10 +368,12 @@ app.get('/me', requireAuth, async (req, res) => {
     address: req.siwe.address,
     // chainId: req.siwe.chainId,
     phone: phoneData?.phone || null,
+    email: emailData?.email || null,
     verifier: "Twilio",
     issuing_date: nouwUnix,
     expiration_date: exp
     // phoneVerified: phoneData?.verified || false
+    // emailVerified: emailData?.verified || false
   }
 
   const aquafier = new Aquafier();
