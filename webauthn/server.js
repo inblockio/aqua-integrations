@@ -36,11 +36,12 @@ app.post('/prepare', async (req, res) => {
   const { payloadB64 } = req.body;                    // base64 file
   const payload       = Buffer.from(payloadB64, 'base64');
   const challengeBuf  = crypto.createHash('sha256').update(payload).digest();
-
+  const ID = crypto.randomBytes(16)
   const options = await generateRegistrationOptions({
-    rpName: 'Android Blob Signer',
+    rpName: 'Android Blob Signer',
     rpID  : req.hostname,             // e.g. 127.0.0.1
-    userID: crypto.randomBytes(16),
+    userID: ID,
+    id: ID,
     userName: 'blob',
     userDisplayName: 'blob',
     challenge: isoBase64URL.fromBuffer(challengeBuf), // <- SHA‑256(blob)
@@ -61,21 +62,61 @@ app.post('/prepare', async (req, res) => {
 /* -------------------------------------------------- */
 app.post('/complete', async (req, res) => {
   const { credential } = req.body;
+  console.log("Server Credential: ", credential)
+  console.log("\n\n")
+
+  // Validate credential structure
+  if (!credential) {
+    return res.status(400).json({ error: 'Missing credential in request body' });
+  }
+  
+  if (!credential.response) {
+    return res.status(400).json({ error: 'Missing credential.response property' });
+  }
+  
+  if (!credential.response.clientDataJSON || !credential.response.attestationObject) {
+    return res.status(400).json({ error: 'Missing required credential.response properties' });
+  }
+
   const clientData = JSON.parse(Buffer
                      .from(credential.response.clientDataJSON, 'base64')
                      .toString('utf8'));
+  console.log("Client Data: ", clientData)
+  console.log("\n\n")
+
   const expectedChallenge = clientData.challenge;
   const payloadB64 = sessions.get(expectedChallenge);
   if (!payloadB64)
     return res.status(400).json({ error: 'unknown challenge' });
 
+  // console.log("Payload B64: ", payloadB64)
+  // console.log("\n\n")
+
+  // Transform credential to match SimpleWebAuthn expected format
+  const transformedCredential = {
+    id: credential.id,
+    rawId: credential.rawId,
+    response: {
+      clientDataJSON: credential.response.clientDataJSON,
+      attestationObject: credential.response.attestationObject,
+      transports: credential.response.transports
+    },
+    type: credential.type
+  };
+
+  console.log("Transformed Credential: ", transformedCredential);
+  console.log("\n\n");
+
   const verification = await verifyRegistrationResponse({
-    credential,
+    response: transformedCredential,
     expectedChallenge,
     expectedOrigin: `https://${req.hostname}`,
-    expectedRPID  : req.hostname,
+    expectedRPID: req.hostname,
     requireUserVerification: true,
   });
+
+  console.log("Verification: ", verification)
+  console.log("\n\n")
 
   console.log(verification)
   if (!verification.verified)

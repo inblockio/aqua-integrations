@@ -24,13 +24,15 @@ document.getElementById('sign').onclick = async () => {
 
   alert(JSON.stringify(options))
   /* step 2 – run WebAuthn */
+  let cred = null;
   try {
-    const cred = await startRegistration(options);
+    cred = await startRegistration(options);
   } catch (e) {
     alert(e)
   }
 
   alert(JSON.stringify(cred))
+  console.log("Credentials: ", cred)
 
   /* step 3 – send result back to server */
   const signed = await fetch('/complete', {
