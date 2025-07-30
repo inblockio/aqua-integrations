@@ -1,0 +1,45 @@
+<!DOCTYPE html><meta charset="utf-8">
+<h1>Android blob signer</h1>
+<input type="file" id="file">
+<button id="sign">Sign!</button>
+<pre id="out"></pre>
+
+<script type="module">
+import { startRegistration } from 'https://cdn.jsdelivr.net/npm/@simplewebauthn/browser/+esm';
+
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+document.getElementById('sign').onclick = async () => {
+  const file   = document.getElementById('file').files[0];
+  if (!file) return alert('choose a file first');
+
+  const payload = await file.arrayBuffer();
+  const payloadB64 = b64(payload);
+
+  /* step 1  – get PublicKeyCredentialCreationOptions */
+  const options = await fetch('/prepare', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ payloadB64 }),
+  }).then(r => r.json());
+
+  alert(JSON.stringify(options))
+  /* step 2 – run WebAuthn */
+  try {
+    const cred = await startRegistration(options);
+  } catch (e) {
+    alert(e)
+  }
+
+  alert(JSON.stringify(cred))
+
+  /* step 3 – send result back to server */
+  const signed = await fetch('/complete', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ credential: cred }),
+  }).then(r => r.json());
+  alert(JSON.stringify(signed))
+
+  document.getElementById('out').textContent =
+    JSON.stringify(signed, null, 2);
+};
+</script>
