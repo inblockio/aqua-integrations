@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spotify - Aqua Demo</title>
+</head>
+
+<body>
+  <section id="auth">
+    <button id="connect">1️⃣ Connect MetaMask</button><br />
+    <button id="signin" disabled>2️⃣ Sign‑In with Ethereum</button>
+  </section>
+
+
+  <section id="upload">
+    <button id="upload_file" disabled>Upload Music file</button><br />
+    <input type="file" id="fileInput" accept=".mp3,audio/mpeg" style="display: none;" />
+  </section>
+
+  <section style="margin-top:1rem;">
+    <button id="logout" disabled>Logout</button>
+    <button id="check-session">Check Session Status</button>
+  </section>
+
+
+
+  <pre id="status">Status:
+
+- Wallet: (not connected)
+- SIWE: (not signed in)
+- Upload a file: (not available)
+</pre>
+  <hr />
+  <small>Note: This demo uses a local server at <code>http://localhost:3000</code>. Make sure it's running!</small>
+
+  <script type="module">
+
+    import { ethers } from 'https://esm.sh/ethers@6?bundle';
+    import { SiweMessage } from 'https://esm.sh/siwe@3?bundle';
+    import axios from 'https://esm.sh/axios@1?bundle';
+    import { wrapper } from 'https://esm.sh/axios-cookiejar-support@6?bundle';
+    import { CookieJar } from 'https://esm.sh/tough-cookie@5?bundle';
+    import Aquafier from 'https://esm.sh/aqua-js-sdk@3.2.1-41';
+
+
+    (async () => {
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      let signer, address, chainId;
+
+      const $ = (id) => document.getElementById(id);
+      const status = $('status');
+      const append = (msg) => (status.textContent += "\n" + msg);
+      const api = wrapper(axios.create({ baseURL: 'http://localhost:3000', withCredentials: true, jar: new CookieJar() }));
+
+      // Check session status on page load
+      checkSessionStatus();
+
+      async function checkSessionStatus() {
+        try {
+          const { data } = await api.get('/session-status');
+          if (data.authenticated) {
+            append(`🔑 Already authenticated as ${data.address}`);
+            $('upload_file').disabled = false;
+          } else {
+            append('Not authenticated. Please connect wallet and sign in.');
+          }
+        } catch (err) {
+          console.error('Error checking session:', err);
+        }
+      }
+
+      $('connect').onclick = async () => {
+        try {
+          await window.ethereum.request({ method: 'eth_requestAccounts' });
+          signer = await provider.getSigner();
+          address = await signer.getAddress();
+          chainId = (await provider.getNetwork()).chainId;
+          append('✅ Wallet connected: ' + address);
+          $('signin').disabled = false;
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+      $('signin').onclick = async () => {
+        try {
+          const { data: nonce } = await api.get('/nonce');
+          const msgObj = new SiweMessage({
+            domain: 'localhost',
+            address,
+            statement: 'Sign in with Ethereum (Twilio Verify OTP)',
+            uri: 'http://localhost:3000',
+            version: '1',
+            chainId,
+            nonce,
+          });
+          const message = msgObj.prepareMessage();
+          const signature = await signer.signMessage(message);
+          const res = await api.post('/verify', { message, signature });
+          if (!res.data.ok) throw new Error(JSON.stringify(res));
+          append('✅ SIWE verified for ' + res.data.address);
+          // $('send-sms').disabled = false;
+          // $('send-email').disabled = false;
+          $('logout').disabled = false;
+
+          // Check session status after login
+          await checkSessionStatus();
+        } catch (err) {
+          alert(err.message || err);
+        }
+      };
+
+
+      $('upload_file').onclick = () => {
+        $('fileInput').click(); // Trigger hidden file input
+      };
+
+      // Handle file selection
+      $('fileInput').onchange = async (event) => {
+        const file = event.target.files[0];
+        if (!file) {
+          append("❌ No file selected.");
+          return;
+        }
+
+        if (!file.name.endsWith('.mp3')) {
+          alert('Please select an MP3 file only.');
+          event.target.value = ''; // Clear selection
+          return;
+        }
+
+        append(`🎵 Selected file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+        // TODO: Upload logic goes here notarize the file
+      };
+
+    })();
+  </script>
+
+</body>
+
+</html>
