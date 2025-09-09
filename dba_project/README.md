@@ -27,31 +27,22 @@ npm run build
 ### CLI Usage
 ```bash
 # Basic usage - scrape a URL
-node ./dist/index.js --url https://example.com
+node ./dist/index.js --url https://courts.delaware.gov/tradenames/details.aspx?id=636000
 
 # Save to custom output file
-node ./dist/index.js --url https://github.com --output github_data.json
+node ./dist/index.js --url https://courts.delaware.gov/tradenames/details.aspx?id=636000 --output github_data.json
 
 # Enable verbose logging
-node ./dist/index.js --url https://example.com --verbose
+node ./dist/index.js --url https://courts.delaware.gov/tradenames/details.aspx?id=636002 --verbose
 
 # Show help
 node ./dist/index.js --help
+
+# Verification
+node ./dist/index.js --verify info.json
 ```
 
-### Alternative npm scripts
-```bash
-# Build and run CLI
-npm run cli -- --url https://example.com
-
-# Run the legacy scraper example
-npm start
-```
-
-### Development mode
-```bash
-npm run dev
-```
+NOTE: We are currently saving data into `info.json` and `signed_info.json`. So during verification, pass in the path as `info.json` and not the `output` filename you specified
 
 ## What it scrapes
 
@@ -71,7 +62,7 @@ Results are displayed in the console and optionally saved to a JSON file with th
   "title": "Page Title",
   "headings": ["Heading 1", "Heading 2"],
   "links": [
-    {"text": "Link Text", "href": "https://example.com"}
+    {"text": "Link Text", "href": "https://courts.delaware.gov/tradenames/details.aspx?id=636002"}
   ],
   "paragraphs": ["Paragraph content..."],
   "images": [
@@ -86,9 +77,8 @@ Results are displayed in the console and optionally saved to a JSON file with th
 |--------|-------|-------------|---------|
 | `--url` | `-u` | URL to scrape (required) | - |
 | `--output` | `-o` | Output file path | `output.json` |
-| `--verbose` | `-v` | Enable verbose logging | `false` |
 | `--help` | `-h` | Show help information | - |
-| `--version` | `-V` | Show version number | - |
+| `--verify` | `-V` | Verify AquaTree | - |
 
 ## Project Structure
 
@@ -112,7 +102,7 @@ dba_project/
 import { scrapeWebsite } from './scraper.js';
 
 // Scrape a website and optionally save to file
-const data = await scrapeWebsite('https://example.com', 'output.json');
+const data = await scrapeWebsite('https://courts.delaware.gov/tradenames/details.aspx?id=636002', 'output.json');
 ```
 
 ### WebScraper Class
@@ -120,7 +110,7 @@ const data = await scrapeWebsite('https://example.com', 'output.json');
 ```typescript
 import { WebScraper } from './scraper.js';
 
-const scraper = new WebScraper('https://example.com');
+const scraper = new WebScraper('https://courts.delaware.gov/tradenames/details.aspx?id=636002');
 
 // Get scraped data
 const data = await scraper.scrape();

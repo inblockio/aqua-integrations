@@ -1,8 +1,25 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import Aquafier, { LogTypeEmojis, getGenesisHash, OrderRevisionInAquaTree } from "aqua-js-sdk";
+import fs from "fs";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import fs from "fs";
+const mnemonic = "mail ignore situate guard glove physical gaze scale they trouble chunk sock";
+const nostr_sk = "bab92dda770b41ffb8afa623198344f44950b5b9c3e83f6b36ad08977b783d55";
+const did_key = "2edfed1830e9db59438c65b63a85c73a1aea467e8a84270d242025632e04bb65";
+const alchemy_key = "ZaQtnup49WhU7fxrujVpkFdRz4JaFRtZ";
+const witness_eth_network = "sepolia";
+const witness_eth_platform = "metamask";
+const witness_method = "cli";
+const Credentials = {
+  mnemonic,
+  nostr_sk,
+  did_key,
+  alchemy_key,
+  witness_eth_network,
+  witness_eth_platform,
+  witness_method
+};
 class WebScraper {
   constructor(url) {
     this.url = url;
@@ -216,19 +233,180 @@ async function scrapeWebsite(url, outputFile) {
     return null;
   }
 }
+async function createDBAClaim(dbaInfo, url) {
+  const aquafier = new Aquafier();
+  const fileContent = JSON.stringify({ ...dbaInfo, url }, null, 4);
+  const fileObject = {
+    fileName: "info.json",
+    fileContent,
+    path: "./info.json"
+  };
+  const genesisRevisionRes = await aquafier.createGenesisRevision(fileObject, true, false, false);
+  if (genesisRevisionRes.isOk()) {
+    const aquaTree = genesisRevisionRes.data.aquaTree;
+    const aquaTreeWrapper = {
+      aquaTree,
+      revision: "",
+      fileObject
+    };
+    const credentials = Credentials;
+    const signRes = await aquafier.signAquaTree(aquaTreeWrapper, "cli", credentials, true);
+    if (signRes.isOk()) {
+      console.log("Signed AquaTree successfully");
+      fs.writeFileSync("./info.json", fileContent);
+      fs.writeFileSync("./signed_info.json", JSON.stringify(signRes.data.aquaTree, null, 4));
+    }
+  }
+}
+async function verifyDomain(url) {
+  try {
+    const { hostname } = new URL(url);
+    const response = await fetch(`https://cloudflare-dns.com/dns-query?name=${hostname}&type=DS`, {
+      headers: { "accept": "application/dns-json" }
+    });
+    if (!response.ok) return false;
+    const data = await response.json();
+    return Array.isArray(data.Answer) && data.Answer.length > 0;
+  } catch (e) {
+    return false;
+  }
+}
+async function verifyDBAClaimLayerOne(aquaTreeWrapper) {
+  const aquafier = new Aquafier();
+  const res = await aquafier.verifyAquaTree(aquaTreeWrapper.aquaTree, [aquaTreeWrapper.fileObject], Credentials);
+  if (res.isOk()) {
+    console.log("\n\nVerification Layer 1");
+    console.log("✅ AquaTree verified successfully");
+    console.log("Verification logs\n========\n");
+    for (const log of res.data.logData) {
+      const emoji = LogTypeEmojis[log.logType];
+      console.log(`${emoji} ${log.log}`);
+    }
+    console.log("========\n");
+  } else {
+    console.log("❌ AquaTree verification failed");
+    console.log("Verification logs\n========\n");
+    for (const log of res.data) {
+      const emoji = LogTypeEmojis[log.logType];
+      console.log(`${emoji} ${log.log}`);
+    }
+    console.log("========\n");
+  }
+}
+async function verifyDataAgainstNewData(infoJsonData) {
+  console.log("\nVerifying claim data vs website data");
+  const newData = await scrapeWebsite(infoJsonData.url);
+  if (!newData) return;
+  const newInfo = {
+    ...newData.tradeNameDetails,
+    url: infoJsonData.url
+  };
+  const orderedKeysOld = Object.keys(infoJsonData).sort();
+  const orderedKeysNew = Object.keys(newInfo).sort();
+  if (orderedKeysOld.length !== orderedKeysNew.length) {
+    console.log("❌ Data verification failed.");
+    console.log("Keys do not match");
+    console.log("Old keys:", orderedKeysOld);
+    console.log("New keys:", orderedKeysNew);
+  } else {
+    let errorsCount = 0;
+    for (let i = 0; i < orderedKeysOld.length; i++) {
+      const key = orderedKeysOld[i];
+      if (infoJsonData[key] !== newInfo[key]) {
+        errorsCount++;
+        console.log("❌ Key:", key);
+        console.log("Old value:", infoJsonData[key]);
+        console.log("New value:", newInfo[key]);
+      } else {
+        console.log("✅ Key:", key);
+        console.log("Old value:", infoJsonData[key]);
+        console.log("New value:", newInfo[key]);
+        console.log("__________________\n");
+      }
+    }
+    if (errorsCount === 0) {
+      console.log("✅ Data verification passed.");
+    } else {
+      console.log("❌ Data verification failed.");
+    }
+  }
+}
+async function verifyDBAClaimLayerTwo(aquaTreeWrapper) {
+  console.log("\n\nVerification Layer 2\n");
+  const genesisHash = getGenesisHash(aquaTreeWrapper.aquaTree);
+  const orderedAquatree = OrderRevisionInAquaTree(aquaTreeWrapper.aquaTree);
+  const aquaTreeRevisionsHashes = Object.keys(orderedAquatree.revisions);
+  const secondRevionsHash = aquaTreeRevisionsHashes[1];
+  if (!genesisHash) return;
+  const genesisRevision = aquaTreeWrapper.aquaTree.revisions[genesisHash];
+  if (!genesisRevision) return;
+  const domainVerified = await verifyDomain(genesisRevision["forms_url"]);
+  console.log(">> Domain Verification");
+  if (domainVerified) {
+    console.log("✅ Domain verified successfully");
+  } else {
+    console.log("❌ Domain verification failed");
+  }
+  console.log("<------------------\n");
+  console.log(">> Wallet Address Verification");
+  if (secondRevionsHash) {
+    const secondRevision = aquaTreeWrapper.aquaTree.revisions[secondRevionsHash];
+    if (!secondRevision) {
+      console.log("❌ Second revision not found");
+    } else {
+      if (secondRevision["signature_wallet_address"]?.toLocaleLowerCase() === genesisRevision["forms_trade_name"].toLocaleLowerCase()) {
+        console.log("✅ Second revision signature_wallet_address matches first revision forms_trade_name");
+      } else {
+        console.log("❌ Second revision signature_wallet_address does not match first revision forms_trade_name");
+      }
+    }
+  } else {
+    console.log("❌ Second revision not found");
+  }
+  console.log("<------------------\n");
+  const infoJsonData = {};
+  const keys = Object.keys(genesisRevision);
+  for (const key of keys) {
+    if (key.startsWith("forms_")) {
+      infoJsonData[key.replace("forms_", "")] = genesisRevision[key];
+    }
+  }
+  await verifyDataAgainstNewData(infoJsonData);
+}
+async function verifyDBAClaim(aquaTreeWrapper) {
+  await verifyDBAClaimLayerOne(aquaTreeWrapper);
+  await verifyDBAClaimLayerTwo(aquaTreeWrapper);
+}
 const program = new Command();
 program.name("web-scraper").description("A web scraping tool built with TypeScript and Cheerio").version("1.0.0");
-program.option("-u, --url <url>", "URL to scrape").option("-o, --output <file>", "Output file path", "output.json").option("-v, --verbose", "Enable verbose logging").action(async (options) => {
-  if (!options.url) {
-    console.error("Error: URL is required. Use --url <url>");
-    process.exit(1);
+program.option("-u, --url <url>", "URL to scrape").option("-o, --output <file>", "Output file path", "output.json").option("-v, --verify <file>", "Verify DBA claim").action(async (options) => {
+  if (options.verify) {
+    const filePath = options.verify;
+    const infoJson = fs.readFileSync(`${filePath}`, "utf8");
+    const aquaTree = JSON.parse(fs.readFileSync(`signed_${filePath}`, "utf8"));
+    const aquaTreeWrapper = {
+      aquaTree,
+      fileObject: {
+        fileName: "info.json",
+        fileContent: infoJson,
+        path: "./info.json"
+      }
+    };
+    await verifyDBAClaim(aquaTreeWrapper);
+    return;
+  }
+  if (options.url) {
+    const data = await scrapeWebsite(options.url, options.output);
+    if (data && data.tradeNameDetails) {
+      createDBAClaim(data.tradeNameDetails, options.url);
+    }
+    return;
   }
   try {
     console.log(`Scraping URL: ${options.url}`);
     if (options.verbose) {
       console.log(`Output file: ${options.output}`);
     }
-    await scrapeWebsite(options.url, options.output);
     console.log("Scraping completed successfully!");
   } catch (error) {
     console.error("Error:", error);

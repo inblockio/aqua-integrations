@@ -1,36 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import fs from "fs"
-
-interface ScrapedData {
-  title: string;
-  headings: string[];
-  links: Array<{ text: string; href: string }>;
-  paragraphs: string[];
-  images: Array<{ src: string; alt: string }>;
-  tradeNameDetails?: TradeNameDetails;
-}
-
-interface TradeNameDetails {
-  county: string;
-  status: string;
-  trade_name: string;
-  file_number: string;
-  formation_date: string;
-  filed_date: string;
-  address_1: string;
-  address_2: string;
-  city: string;
-  state: string;
-  zip_code: string;
-  phone: string;
-  affiant: string;
-  affiant_title: string;
-  parent_company: string;
-  nature_of_business: string;
-  termination_date: string;
-  last_updated_on: string;
-}
+import { ScrapedData, TradeNameDetails } from './types';
 
 class WebScraper {
   private url: string;
