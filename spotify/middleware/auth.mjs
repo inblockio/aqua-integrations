@@ -1,6 +1,7 @@
 /* ======================== middleware/auth.mjs ======================== */
 import * as db from '../db.mjs';
 
+
 export async function requireAuth(req, res, next) {
   // Get session ID from cookie
   const sessionId = req.session.sessionId;

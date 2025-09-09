@@ -37,108 +37,173 @@
 
   <script type="module">
 
-    import { ethers } from 'https://esm.sh/ethers@6?bundle';
-    import { SiweMessage } from 'https://esm.sh/siwe@3?bundle';
-    import axios from 'https://esm.sh/axios@1?bundle';
-    import { wrapper } from 'https://esm.sh/axios-cookiejar-support@6?bundle';
-    import { CookieJar } from 'https://esm.sh/tough-cookie@5?bundle';
-    import Aquafier from 'https://esm.sh/aqua-js-sdk@3.2.1-41';
+    // import { ethers } from 'https://esm.sh/ethers@6?bundle';
+    // import { SiweMessage } from 'https://esm.sh/siwe@3?bundle';
+    // import axios from 'https://esm.sh/axios@1?bundle';
+    // import { wrapper } from 'https://esm.sh/axios-cookiejar-support@6?bundle';
+    // import { CookieJar } from 'https://esm.sh/tough-cookie@5?bundle';
+    // import Aquafier from 'https://esm.sh/aqua-js-sdk@3.2.1-41';
 
+// Updated JavaScript for the HTML file (replace the existing script section)
 
-    (async () => {
+import { ethers } from 'https://esm.sh/ethers@6?bundle';
+import { SiweMessage } from 'https://esm.sh/siwe@3?bundle';
+import axios from 'https://esm.sh/axios@1?bundle';
+import { wrapper } from 'https://esm.sh/axios-cookiejar-support@6?bundle';
+import { CookieJar } from 'https://esm.sh/tough-cookie@5?bundle';
+import Aquafier from 'https://esm.sh/aqua-js-sdk@3.2.1-41';
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      let signer, address, chainId;
+(async () => {
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  let signer, address, chainId;
 
-      const $ = (id) => document.getElementById(id);
-      const status = $('status');
-      const append = (msg) => (status.textContent += "\n" + msg);
-      const api = wrapper(axios.create({ baseURL: 'http://localhost:3000', withCredentials: true, jar: new CookieJar() }));
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+  const append = (msg) => (status.textContent += "\n" + msg);
+  const api = wrapper(axios.create({ 
+    baseURL: 'http://localhost:3000', 
+    withCredentials: true, 
+    jar: new CookieJar() 
+  }));
 
-      // Check session status on page load
-      checkSessionStatus();
+  // Check session status on page load
+  checkSessionStatus();
 
-      async function checkSessionStatus() {
-        try {
-          const { data } = await api.get('/session-status');
-          if (data.authenticated) {
-            append(`🔑 Already authenticated as ${data.address}`);
-            $('upload_file').disabled = false;
-          } else {
-            append('Not authenticated. Please connect wallet and sign in.');
-          }
-        } catch (err) {
-          console.error('Error checking session:', err);
-        }
+  async function checkSessionStatus() {
+    try {
+      const { data } = await api.get('/session-status');
+      if (data.authenticated) {
+        append(`🔑 Already authenticated as ${data.address}`);
+        $('upload_file').disabled = false;
+      } else {
+        append('Not authenticated. Please connect wallet and sign in.');
       }
+    } catch (err) {
+      console.error('Error checking session:', err);
+    }
+  }
 
-      $('connect').onclick = async () => {
-        try {
-          await window.ethereum.request({ method: 'eth_requestAccounts' });
-          signer = await provider.getSigner();
-          address = await signer.getAddress();
-          chainId = (await provider.getNetwork()).chainId;
-          append('✅ Wallet connected: ' + address);
-          $('signin').disabled = false;
-        } catch (err) {
-          alert(err.message || err);
-        }
-      };
+  $('connect').onclick = async () => {
+    try {
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+      signer = await provider.getSigner();
+      address = await signer.getAddress();
+      chainId = (await provider.getNetwork()).chainId;
+      append('✅ Wallet connected: ' + address);
+      $('signin').disabled = false;
+    } catch (err) {
+      alert(err.message || err);
+    }
+  };
 
-      $('signin').onclick = async () => {
-        try {
-          const { data: nonce } = await api.get('/nonce');
-          const msgObj = new SiweMessage({
-            domain: 'localhost',
-            address,
-            statement: 'Sign in with Ethereum (Twilio Verify OTP)',
-            uri: 'http://localhost:3000',
-            version: '1',
-            chainId,
-            nonce,
-          });
-          const message = msgObj.prepareMessage();
-          const signature = await signer.signMessage(message);
-          const res = await api.post('/verify', { message, signature });
-          if (!res.data.ok) throw new Error(JSON.stringify(res));
-          append('✅ SIWE verified for ' + res.data.address);
-          // $('send-sms').disabled = false;
-          // $('send-email').disabled = false;
-          $('logout').disabled = false;
+  $('signin').onclick = async () => {
+    try {
+      const { data: nonce } = await api.get('/nonce');
+      const msgObj = new SiweMessage({
+        domain: 'localhost',
+        address,
+        statement: 'Sign in with Ethereum (Twilio Verify OTP)',
+        uri: 'http://localhost:3000',
+        version: '1',
+        chainId,
+        nonce,
+      });
+      const message = msgObj.prepareMessage();
+      const signature = await signer.signMessage(message);
+      const res = await api.post('/verify', { message, signature });
+      if (!res.data.ok) throw new Error(JSON.stringify(res));
+      append('✅ SIWE verified for ' + res.data.address);
+      $('logout').disabled = false;
+      await checkSessionStatus();
+    } catch (err) {
+      alert(err.message || err);
+    }
+  };
 
-          // Check session status after login
-          await checkSessionStatus();
-        } catch (err) {
-          alert(err.message || err);
-        }
-      };
+  $('upload_file').onclick = () => {
+    $('fileInput').click();
+  };
 
+  // Handle file selection and upload
+  $('fileInput').onchange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) {
+      append("❌ No file selected.");
+      return;
+    }
 
-      $('upload_file').onclick = () => {
-        $('fileInput').click(); // Trigger hidden file input
-      };
+    if (!file.name.endsWith('.mp3')) {
+      alert('Please select an MP3 file only.');
+      event.target.value = '';
+      return;
+    }
 
-      // Handle file selection
-      $('fileInput').onchange = async (event) => {
-        const file = event.target.files[0];
-        if (!file) {
-          append("❌ No file selected.");
-          return;
-        }
+    append(`🎵 Selected file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+    append(`📤 Uploading...`);
 
-        if (!file.name.endsWith('.mp3')) {
-          alert('Please select an MP3 file only.');
-          event.target.value = ''; // Clear selection
-          return;
-        }
+    try {
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('musicFile', file);
 
-        append(`🎵 Selected file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+      // Upload the file
+      const uploadResponse = await api.post('/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round(
+            (progressEvent.loaded * 100) / progressEvent.total
+          );
+          // Update progress (you could add a progress bar here)
+          console.log(`Upload progress: ${percentCompleted}%`);
+        },
+      });
 
-        // TODO: Upload logic goes here notarize the file
-      };
+      if (uploadResponse.data.success) {
+        append(`✅ Upload successful!`);
+        append(`📄 File info:`);
+        append(`✔️   - Original name: ${uploadResponse.data.file.originalName}`);
+        append(`✔️   - File hash: ${uploadResponse.data.file.hash}`);
+        append(`✔️   - Size: ${(uploadResponse.data.file.size / 1024 / 1024).toFixed(2)} MB`);
+        append(`✔️   - Uploaded at: ${uploadResponse.data.file.uploadedAt}`);
+        append(` ✅  - AquaTree: ${JSON.stringify(uploadResponse.data.aquaTree, null, 4)}`);
+        
+        
+      } else {
+        append(`❌ Upload failed: ${uploadResponse.data.error}`);
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      if (error.response?.data?.error) {
+        append(`❌ Upload error: ${error.response.data.error}`);
+      } else {
+        append(`❌ Upload failed: ${error.message}`);
+      }
+    }
 
-    })();
-  </script>
+    // Clear the file input
+    event.target.value = '';
+  };
+
+  // Logout functionality
+  $('logout').onclick = async () => {
+    try {
+      await api.post('/logout');
+      append('👋 Logged out successfully');
+      $('signin').disabled = true;
+      $('upload_file').disabled = true;
+      $('logout').disabled = true;
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  };
+
+  // Check session button
+  $('check-session').onclick = checkSessionStatus;
+})();
+
+</script>
 
 </body>
 
