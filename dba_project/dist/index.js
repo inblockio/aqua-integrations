@@ -235,7 +235,7 @@ async function scrapeWebsite(url, outputFile) {
 }
 async function createDBAClaim(dbaInfo, url) {
   const aquafier = new Aquafier();
-  const fileContent = JSON.stringify({ ...dbaInfo, url }, null, 4);
+  const fileContent = JSON.stringify({ ...dbaInfo, url, delegated_addresses: "0xD36AAf65a91bB7dc69942cF6B6d1dBa4Ef171664,0xD36AAf65a91bB7dc69942cF6B6d1dBa4Ef171664", type: "dba_claim" }, null, 4);
   const fileObject = {
     fileName: "info.json",
     fileContent,
