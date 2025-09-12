@@ -1,0 +1,30 @@
+{
+  "name": "aqua-wallet-contracts",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:revision": "hardhat test test/RevisionOwnership.ts",
+    "deploy": "hardhat run scripts/deploy.ts",
+    "deploy:revision": "hardhat run scripts/deploy-revision-ownership.ts",
+    "verify:deployment": "hardhat run scripts/verify-deployment.ts",
+    "check:balance": "node scripts/check-balance.js",
+    "generate:wallet": "node scripts/generate-wallet.js",
+    "revision": "node scripts/revision-cli.js",
+    "register:sha256": "node scripts/register-sha256.js",
+    "deploy:alchemy": "node scripts/deploy-sha256-alchemy.js",
+    "node": "hardhat node",
+    "clean": "hardhat clean"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
